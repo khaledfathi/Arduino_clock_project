@@ -9,7 +9,7 @@
 
 //pins for lcd
 #define pin1 2 //RS 
-#define pin2 3 //RW
+#define pin2 3 //en
 #define pin4 4 //D4
 #define pin5 5 //D5
 #define pin6 6 //D6
@@ -21,7 +21,7 @@
 //SD reader pins [SPI]
 #define SD_ChipSelectPin 10
 // mosi 11 // MOSI pin in SD reader
-// miso 12 // MOSI pin in SD reader
+// miso 12 // MISO pin in SD reader
 // sck 13 // SCK pin in SD reader
 
 //speaker
@@ -32,15 +32,13 @@
 LiquidCrystal lcd(pin1 , pin2 , pin4 , pin5 , pin6, pin7);
 TMRpcm tmrpcm;
 
+uint32_t interrupt_time =0 ; 
 short sec = 0;
 short min_ = 0; 
-short hr = 12 ; 
+short hr = 1 ; 
 short day_zone = 0; 
 short mode = 0 ; 
 
-//time and compare values
-const uint16_t t1_load = 0 ; 
-const uint16_t  t1_comp = 15625 ; 
 
 //close setting mode after while 
 short setting_time_out = 0 ; 
@@ -85,14 +83,17 @@ void display_clock(int hr , int min_ , int sec){
    }
 }
 
-void cough(){ // stream 1st audio 
-    tmrpcm.play("a.wav");
+void cough(unsigned int time_){ // stream 1st audio 
+    tmrpcm.play((char*)"a.wav",30);
+    delay(time_);
     //tmrpcm.stopPlayback();
-    //tmrpcm.disable();
+    tmrpcm.disable();
     
 }
 
-void setup() {
+void setup() { ///////////////////////
+  Serial.begin(9600);
+  
   //Reader and audio stream setup 
   tmrpcm.speakerPin = speaker;
   tmrpcm.setVolume(3);
@@ -101,18 +102,14 @@ void setup() {
   //lcd setup 
   lcd.begin(16,2);
   
-  //timer register setup 
-  TCCR1A = 0 ; //Reset timer control register A;
-  //select prescaler (clk/1042)
-  TCCR1B |= 1 ; //CS10;
-  TCCR1B &= ~(1<<1) ; //CS11; 
-  TCCR1B |= 1<<2 ; //CS12;
-
-  //set time and compare
-  TCNT1 = t1_load; 
-  OCR1A = t1_comp;
-  TIMSK1 |= 1<<1;
-
+  //TIMER 0 
+  TCNT2 = 0 ;
+  //prescaler 
+  TCCR2B|= 1<<CS20;
+  
+  TIMSK2 |= 1<< TOIE2 ; //timer mask OVF interupt
+  
+  
   //enable global interrupt 
   sei();
 
@@ -124,24 +121,17 @@ void setup() {
 }
 
 void loop() {
+  //check memory card
+  if (!SD.begin(SD_ChipSelectPin)) {
+    Serial.println("SD fail"); 
+  }else{
+    Serial.println("SD OK"); 
+  }
     
-    
-  //clock_cycle
-  if(sec == 60){
-    sec=0; 
-    min_++; 
-   }else if (min_ >= 60){
-    min_ =0; 
-    hr ++;
-   }else if (hr > 12){
-    day_zone ^= 1;
-    hr = 1; 
-   }
-  
    //display time
     lcd.setCursor(1,0);  
     display_clock(hr , min_ , sec);
-   
+    
    //timeout for mode setting
    if (setting_time_out == 10){
     lcd.clear();
@@ -184,9 +174,35 @@ void loop() {
       day_zone ^=1;
       delay(200);
     }
+    
+    //Run Audio 
+    if (hr%2 ==0 && min_ == 0 && sec == 0 ){
+        lcd.setCursor(0,1);
+        lcd.print("   Ventocough   ");
+        cough(1000);
+     }else if(hr%2 !=0 && min_ == 0 && sec == 0 ){
+        lcd.setCursor(0,1);
+        lcd.print("   Levoctivan   ");
+        cough(4000);
+     }
 }
-ISR(TIMER1_COMPA_vect){
-  TCNT1 = t1_load;
-  sec++;
-  setting_time_out++;
+ISR(TIMER2_OVF_vect){
+  interrupt_time++;
+  if (interrupt_time == 256){
+    sec++;
+    setting_time_out++;
+    interrupt_time=0 ;
+   }
+  
+  //clock_cycle
+  if(sec >= 60){
+    sec=0; 
+    min_++; 
+   }else if (min_ >= 60){
+    min_ =0; 
+    hr ++;
+   }else if (hr > 12){
+    day_zone ^= 1;
+    hr = 1; 
+   }  
 }
