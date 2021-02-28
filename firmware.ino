@@ -34,8 +34,8 @@ TMRpcm tmrpcm;
 
 uint32_t interrupt_time =0 ; 
 short sec = 0;
-short min_ = 0; 
-short hr = 1 ; 
+short min_ = 40; 
+short hr = 3 ; 
 short day_zone = 0; 
 short mode = 0 ; 
 
@@ -101,13 +101,17 @@ void setup() { ///////////////////////
   
   //lcd setup 
   lcd.begin(16,2);
+
+  TCCR1A = 0x00 ; //cuz arduino use it for another function 
   
   //TIMER 0 
-  TCNT2 = 0 ;
-  //prescaler 
-  TCCR2B|= 1<<CS20;
+  TCNT2 = 0 ;//reset timer 0
   
-  TIMSK2 |= 1<< TOIE2 ; //timer mask OVF interupt
+  //prescaler 
+  TCCR2B |= 0b00000110;// 256/F_ocs
+ 
+  OCR2B = 250; 
+  TIMSK2 |= 1<< OCIE2B ;//mask for compar with OCR2B
   
   
   //enable global interrupt 
@@ -117,16 +121,17 @@ void setup() { ///////////////////////
   DDRB |= 1; // mode_button
   DDRB |= 1<<1; // change_button
   
-  
 }
 
 void loop() {
   //check memory card
+  /*
   if (!SD.begin(SD_ChipSelectPin)) {
     Serial.println("SD fail"); 
   }else{
     Serial.println("SD OK"); 
   }
+  */
     
    //display time
     lcd.setCursor(1,0);  
@@ -179,30 +184,31 @@ void loop() {
     if (hr%2 ==0 && min_ == 0 && sec == 0 ){
         lcd.setCursor(0,1);
         lcd.print("   Ventocough   ");
-        cough(1000);
+        //cough(1000);
      }else if(hr%2 !=0 && min_ == 0 && sec == 0 ){
         lcd.setCursor(0,1);
         lcd.print("   Levoctivan   ");
-        cough(4000);
+        //cough(4000);
      }
 }
-ISR(TIMER2_OVF_vect){
+
+ISR(TIMER2_COMPB_vect){
   interrupt_time++;
-  if (interrupt_time == 256){
+  if (interrupt_time == 250){//make 1 sec
     sec++;
     setting_time_out++;
     interrupt_time=0 ;
+    TCNT2= 0 ;  
+    //clock_cycle
+    if(sec >= 60){
+      sec=0; 
+      min_++; 
+     }else if (min_ >= 60){
+      min_ =0; 
+      hr ++;
+     }else if (hr > 12){
+      day_zone ^= 1;
+      hr = 1; 
+     }  
    }
-  
-  //clock_cycle
-  if(sec >= 60){
-    sec=0; 
-    min_++; 
-   }else if (min_ >= 60){
-    min_ =0; 
-    hr ++;
-   }else if (hr > 12){
-    day_zone ^= 1;
-    hr = 1; 
-   }  
 }
