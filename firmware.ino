@@ -32,17 +32,23 @@
 LiquidCrystal lcd(pin1 , pin2 , pin4 , pin5 , pin6, pin7);
 TMRpcm tmrpcm;
 
-uint32_t interrupt_time =0 ; 
-short sec = 0;
-short min_ = 40; 
-short hr = 3 ; 
+//for timer
+short ovf = 0;
+short ocr_value = 250;
+short ovf_count = 250;
+
+short sec = 59;
+short min_ = 59; 
+short hr = 12; 
 short day_zone = 0; 
 short mode = 0 ; 
 
+char text[][17] = {"   Ventocough   ", "   Levoctivan   "} ; 
+char current_text = 0; 
 
 //close setting mode after while 
 short setting_time_out = 0 ; 
-
+short memory_error=0 ;  
 
 
 void display_clock(int hr , int min_ , int sec){
@@ -84,73 +90,99 @@ void display_clock(int hr , int min_ , int sec){
 }
 
 void cough(unsigned int time_){ // stream 1st audio 
-    tmrpcm.play((char*)"a.wav",30);
+    tmrpcm.loop(1); 
+    tmrpcm.play((char*)"co.wav");
+    
     delay(time_);
-    //tmrpcm.stopPlayback();
-    tmrpcm.disable();
+    
+    tmrpcm.stopPlayback();
+    
+}
+void sneeze(unsigned int time_){ // stream 1st audio 
+    tmrpcm.loop(1); 
+    tmrpcm.play((char*)"sn.wav");
+    
+    delay(time_);
+    
+    tmrpcm.stopPlayback();
     
 }
 
 void setup() { ///////////////////////
-  Serial.begin(9600);
   
+   pinMode(mode_button , INPUT_PULLUP);
+   pinMode(change_button , INPUT_PULLUP);
+
+   //pin control audio_amp circut 
+   DDRB|=1;
+   
+  //Serial.begin(9600);
   //Reader and audio stream setup 
   tmrpcm.speakerPin = speaker;
-  tmrpcm.setVolume(3);
-  SD.begin();
+  tmrpcm.setVolume(6);
+  
   
   //lcd setup 
   lcd.begin(16,2);
+
+  //Check Memory Card
+  lcd.print("Starting . . .");
+  SD.begin();
+  if (!SD.begin(SD_ChipSelectPin)) {
+    memory_error = 1; 
+    lcd.clear();
+    lcd.print("Memory ERROR");
+   }else {
+    memory_error = 0; 
+   }
+   delay(2000);
+   lcd.clear();
 
   TCCR1A = 0x00 ; //cuz arduino use it for another function 
   
   //TIMER 0 
   TCNT2 = 0 ;//reset timer 0
-  
+
   //prescaler 
-  TCCR2B |= 0b00000110;// 256/F_ocs
- 
-  OCR2B = 250; 
-  TIMSK2 |= 1<< OCIE2B ;//mask for compar with OCR2B
-  
+  TCCR2B &= ~(1<<CS20);
+  TCCR2B |= 1<<CS21;
+  TCCR2B |= 1<<CS22;
+  OCR2B = ocr_value;
+  TIMSK2 |= 1<< OCIE1B ;//mask for compar with OCR2B
+
   
   //enable global interrupt 
   sei();
 
   //set pins for push button 
-  DDRB |= 1; // mode_button
-  DDRB |= 1<<1; // change_button
+  
   
 }
 
-void loop() {
-  //check memory card
-  /*
-  if (!SD.begin(SD_ChipSelectPin)) {
-    Serial.println("SD fail"); 
-  }else{
-    Serial.println("SD OK"); 
-  }
-  */
-    
+void loop() { 
+     
    //display time
     lcd.setCursor(1,0);  
     display_clock(hr , min_ , sec);
     
    //timeout for mode setting
-   if (setting_time_out == 10){
+   if (setting_time_out == 10 && mode != 0){
     lcd.clear();
+    lcd.setCursor(0,1);
+    lcd.print(text[current_text]);
     setting_time_out=0 ; 
     mode=0;
    }
 
   //clock user setting  
-   if (digitalRead(mode_button)==1){
+   if (digitalRead(mode_button)==0){
       setting_time_out=0 ; 
       mode++; 
       if (mode >3){
         mode =0 ;  
         lcd.clear();
+        lcd.setCursor(0,1);
+        lcd.print(text[current_text]);
       }
       if (mode == 1) {
         lcd.clear();
@@ -168,47 +200,64 @@ void loop() {
       delay(300);
     }
 
-   if (digitalRead(change_button)==1 && mode==1 ){
+   if (digitalRead(change_button)==0 && mode==1 ){
       setting_time_out=0 ; 
       hr++;
+      if(hr>12)hr=1;
       delay(200);
-    }else if (digitalRead(change_button)==1 && mode==2 ){
+    }else if (digitalRead(change_button)==0 && mode==2 ){
+      setting_time_out=0 ; 
       min_++;
+      if(min_==60)min_=0;
       delay(200);
-    }else if (digitalRead(change_button)==1 && mode==3 ){
+    }else if (digitalRead(change_button)==0 && mode==3 ){
+      setting_time_out=0 ; 
       day_zone ^=1;
       delay(200);
     }
-    
     //Run Audio 
-    if (hr%2 ==0 && min_ == 0 && sec == 0 ){
+    if (hr%2 ==0 && min_ == 0 && sec == 0){
+        current_text^=1; //toggle names
         lcd.setCursor(0,1);
-        lcd.print("   Ventocough   ");
-        //cough(1000);
+        lcd.print(text[current_text]);
+        if (memory_error == 0){
+          PORTB |=1;//enable audio circut first
+          sneeze(600);
+          cough(1000);
+          PORTB &=~(1);//disable audio circut 
+         }
+        
      }else if(hr%2 !=0 && min_ == 0 && sec == 0 ){
+        current_text^=1;
         lcd.setCursor(0,1);
-        lcd.print("   Levoctivan   ");
-        //cough(4000);
+        lcd.print(text[current_text]);
+        if (memory_error == 0){
+          PORTB |=1;//enable audio circut first
+          sneeze(600);
+          cough(1000);
+          PORTB &=~(1);//disable audio circut 
+        }
      }
 }
 
 ISR(TIMER2_COMPB_vect){
-  interrupt_time++;
-  if (interrupt_time == 250){//make 1 sec
+  ovf++;
+   if (ovf == ovf_count){
     sec++;
-    setting_time_out++;
-    interrupt_time=0 ;
-    TCNT2= 0 ;  
+    setting_time_out++;  
+    ovf=0 ; 
     //clock_cycle
-    if(sec >= 60){
+    if(sec == 60){
       sec=0; 
       min_++; 
-     }else if (min_ >= 60){
+     }
+     if (min_ == 60){
       min_ =0; 
       hr ++;
-     }else if (hr > 12){
+     }
+     if (hr > 12){
       day_zone ^= 1;
       hr = 1; 
-     }  
-   }
+     }
+    }  
 }
